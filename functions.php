@@ -26,7 +26,6 @@ add_action('after_setup_theme', function () {
         ]);
     }
 });
-
 /**
  * Retrieve the metadata for the plugins this theme depends on.
  */
@@ -147,7 +146,6 @@ function hydrated_required_plugins_admin_notice()
     echo '</div>';
 }
 add_action('admin_notices', 'hydrated_required_plugins_admin_notice');
-
 // ─────────────────────────────────────────────────────────────
 // Block editor styles + patterns
 // ─────────────────────────────────────────────────────────────
