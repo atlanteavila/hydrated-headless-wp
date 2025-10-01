@@ -736,12 +736,17 @@ if (!function_exists('hydrated_do_spaces_upload_file')) {
 
         $url = 'https://' . $host . '/' . ltrim($key, '/');
 
-        $body = file_get_contents($path);
-        if (false === $body) {
-            return new WP_Error('file_read_error', __('Could not read the uploaded file from disk.', 'hydrated'));
+        $payload_hash = hash_file('sha256', $path);
+        if (false === $payload_hash) {
+            return new WP_Error('file_hash_error', __('Could not calculate a checksum for the uploaded file.', 'hydrated'));
         }
 
-        $payload_hash = hash('sha256', $body);
+        $length = $size > 0 ? $size : filesize($path);
+        if (false === $length) {
+            return new WP_Error('file_size_error', __('Could not determine the uploaded file size.', 'hydrated'));
+        }
+
+        $size = (int) $length;
         $amzdate = gmdate('Ymd\THis\Z');
         $date_stamp = gmdate('Ymd');
         $canonical_uri = hydrated_do_spaces_canonical_uri($key);
@@ -789,28 +794,92 @@ if (!function_exists('hydrated_do_spaces_upload_file')) {
             'x-amz-date'            => $amzdate,
         ];
 
-        $response = wp_remote_request($url, [
-            'method'  => 'PUT',
-            'headers' => $headers,
-            'body'    => $body,
-            'timeout' => 60,
-        ]);
-
-        if (is_wp_error($response)) {
-            return $response;
+        $header_lines = [];
+        foreach ($headers as $name => $value) {
+            $header_lines[] = $name . ': ' . $value;
         }
 
-        $status = (int) wp_remote_retrieve_response_code($response);
-        if ($status < 200 || $status >= 300) {
-            $error_body = wp_remote_retrieve_body($response);
-            return new WP_Error(
-                'spaces_upload_failed',
-                sprintf(
-                    __('DigitalOcean Spaces upload failed with status %1$d. %2$s', 'hydrated'),
-                    $status,
-                    $error_body ? wp_strip_all_tags($error_body) : ''
-                )
-            );
+        if (!function_exists('curl_init')) {
+            $body = file_get_contents($path);
+            if (false === $body) {
+                return new WP_Error('file_read_error', __('Could not read the uploaded file from disk.', 'hydrated'));
+            }
+
+            $response = wp_remote_request($url, [
+                'method'  => 'PUT',
+                'headers' => $headers,
+                'body'    => $body,
+                'timeout' => 60,
+            ]);
+
+            if (is_wp_error($response)) {
+                return $response;
+            }
+
+            $status = (int) wp_remote_retrieve_response_code($response);
+            if ($status < 200 || $status >= 300) {
+                $error_body = wp_remote_retrieve_body($response);
+                return new WP_Error(
+                    'spaces_upload_failed',
+                    sprintf(
+                        __('DigitalOcean Spaces upload failed with status %1$d. %2$s', 'hydrated'),
+                        $status,
+                        $error_body ? wp_strip_all_tags($error_body) : ''
+                    )
+                );
+            }
+
+            $response_body = wp_remote_retrieve_body($response);
+        } else {
+            $stream = fopen($path, 'rb');
+            if (!$stream) {
+                return new WP_Error('file_read_error', __('Could not read the uploaded file from disk.', 'hydrated'));
+            }
+
+            $ch = curl_init($url);
+            if (false === $ch) {
+                fclose($stream);
+                return new WP_Error('curl_init_failed', __('Could not initialize the upload request.', 'hydrated'));
+            }
+
+            curl_setopt($ch, CURLOPT_UPLOAD, true);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $header_lines);
+            curl_setopt($ch, CURLOPT_INFILE, $stream);
+            curl_setopt($ch, CURLOPT_INFILESIZE, $size);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+            curl_setopt($ch, CURLOPT_HEADER, false);
+
+            $response_body = curl_exec($ch);
+            $curl_errno = curl_errno($ch);
+            $curl_error = curl_error($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+            curl_close($ch);
+            fclose($stream);
+
+            if (0 !== $curl_errno) {
+                return new WP_Error(
+                    'curl_error',
+                    sprintf(
+                        __('DigitalOcean Spaces upload failed: cURL error %1$d - %2$s', 'hydrated'),
+                        $curl_errno,
+                        $curl_error ?: __('Unknown error', 'hydrated')
+                    )
+                );
+            }
+
+            if ($status < 200 || $status >= 300) {
+                return new WP_Error(
+                    'spaces_upload_failed',
+                    sprintf(
+                        __('DigitalOcean Spaces upload failed with status %1$d. %2$s', 'hydrated'),
+                        $status,
+                        $response_body ? wp_strip_all_tags($response_body) : ''
+                    )
+                );
+            }
         }
 
         $public_base = $config['cdn_host'] ? rtrim($config['cdn_host'], '\\/') : 'https://' . $host;
