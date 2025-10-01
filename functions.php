@@ -270,29 +270,73 @@ if (!function_exists('hydrated_render_do_spaces_meta_box')) {
             $description = $field['description'] ?? '';
             $accept = $field['accept'] ?? '';
 
-            echo '<div class="hydrated-do-space-field">';
-            echo '<label style="font-weight:600; display:block; margin-bottom:4px;" for="' . esc_attr($field_key) . '">' . esc_html($label) . '</label>';
-            if ($stored && is_array($stored) && !empty($stored['url'])) {
-                $link = esc_url($stored['url']);
-                $file_name = !empty($stored['key']) ? esc_html(basename($stored['key'])) : esc_html($label);
-                echo '<p style="margin:0 0 6px;">' . sprintf(__('Current file: <a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a>', 'hydrated'), $link, $file_name) . '</p>';
-            }
+            $has_file = is_array($stored) && !empty($stored['url']);
 
-            echo '<input type="file" id="' . esc_attr($field_key) . '" name="' . esc_attr($field_key) . '"' . ($accept ? ' accept="' . esc_attr($accept) . '"' : '') . ' />';
-
+            echo '<div class="hydrated-do-space-field" data-field-key="' . esc_attr($field_key) . '" data-field-label="' . esc_attr($label) . '">';
+            echo '<div class="hydrated-do-space-field__header">';
+            echo '<span class="hydrated-do-space-field__label">' . esc_html($label) . '</span>';
             if ($description) {
-                echo '<p class="description" style="margin-top:4px;">' . esc_html($description) . '</p>';
+                echo '<p class="description">' . esc_html($description) . '</p>';
+            }
+            echo '</div>';
+
+            echo '<div class="hydrated-do-space-current">';
+            echo hydrated_do_spaces_current_file_markup($stored, $label);
+            echo '</div>';
+
+            echo '<div class="hydrated-do-space-actions">';
+            echo '<button type="button" class="button button-primary hydrated-do-space-upload" data-field-key="' . esc_attr($field_key) . '" data-accept="' . esc_attr($accept) . '">';
+            esc_html_e('Upload to DigitalOcean', 'hydrated');
+            echo '</button>';
+
+            $remove_classes = 'button hydrated-do-space-remove';
+            if (!$has_file) {
+                $remove_classes .= ' is-hidden';
             }
 
-            if ($stored) {
-                echo '<label style="display:block; margin-top:6px;">';
-                echo '<input type="checkbox" name="' . esc_attr($field_key) . '_remove" value="1" /> ';
-                esc_html_e('Remove current file', 'hydrated');
-                echo '</label>';
-            }
+            echo '<button type="button" class="' . esc_attr($remove_classes) . '" data-field-key="' . esc_attr($field_key) . '">';
+            esc_html_e('Remove file', 'hydrated');
+            echo '</button>';
+
+            echo '<span class="hydrated-do-space-status" aria-live="polite"></span>';
+            echo '</div>';
 
             echo '</div>';
         }
+    }
+}
+
+if (!function_exists('hydrated_do_spaces_current_file_markup')) {
+    /**
+     * Render the markup for the current uploaded file section.
+     *
+     * @param mixed $stored
+     * @param string $label
+     */
+    function hydrated_do_spaces_current_file_markup($stored, string $label = ''): string
+    {
+        if (!is_array($stored) || empty($stored['url'])) {
+            return '<p class="description">' . esc_html__('No file uploaded yet.', 'hydrated') . '</p>';
+        }
+
+        $url = esc_url($stored['url']);
+        $file_name = !empty($stored['key']) ? basename((string) $stored['key']) : ($label ?: __('Uploaded file', 'hydrated'));
+        $file_name = esc_html($file_name);
+        $attr_url = esc_attr($stored['url']);
+
+        $link = sprintf(
+            '<p class="hydrated-do-space-current__link"><a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a></p>',
+            $url,
+            $file_name
+        );
+
+        $copy = sprintf(
+            '<div class="hydrated-do-space-copy"><input type="text" class="hydrated-do-space-copy__input" readonly value="%1$s" /><button type="button" class="button hydrated-do-space-copy__button" data-url="%1$s">%2$s</button></div>',
+            $attr_url,
+            esc_html__('Copy URL', 'hydrated')
+        );
+
+        return $link . $copy;
     }
 }
 
@@ -372,6 +416,141 @@ if (!function_exists('hydrated_handle_do_spaces_meta_save')) {
         }
     }
     add_action('save_post', 'hydrated_handle_do_spaces_meta_save');
+}
+
+if (!function_exists('hydrated_do_spaces_enqueue_admin_assets')) {
+    /**
+     * Enqueue admin assets for the DigitalOcean upload modal.
+     */
+    function hydrated_do_spaces_enqueue_admin_assets(string $hook): void
+    {
+        if (!in_array($hook, ['post.php', 'post-new.php'], true)) {
+            return;
+        }
+
+        $style_path = get_template_directory() . '/assets/css/hydrated-do-spaces-admin.css';
+        $script_path = get_template_directory() . '/assets/js/hydrated-do-spaces-admin.js';
+        $version = wp_get_theme()->get('Version');
+
+        $style_version = file_exists($style_path) ? (string) filemtime($style_path) : $version;
+        $script_version = file_exists($script_path) ? (string) filemtime($script_path) : $version;
+
+        wp_enqueue_style(
+            'hydrated-do-spaces-admin',
+            get_template_directory_uri() . '/assets/css/hydrated-do-spaces-admin.css',
+            [],
+            $style_version
+        );
+
+        wp_enqueue_script(
+            'hydrated-do-spaces-admin',
+            get_template_directory_uri() . '/assets/js/hydrated-do-spaces-admin.js',
+            ['jquery'],
+            $script_version,
+            true
+        );
+
+        wp_localize_script('hydrated-do-spaces-admin', 'HydratedDOSpaces', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce'   => wp_create_nonce('hydrated_do_spaces_ajax'),
+            'strings' => [
+                'modalTitle'   => __('Upload to DigitalOcean Spaces', 'hydrated'),
+                'selectFile'   => __('Choose a file to upload. Upload begins immediately after selection.', 'hydrated'),
+                'selectButton' => __('Select file', 'hydrated'),
+                'uploading'    => __('Uploading…', 'hydrated'),
+                'success'      => __('Upload complete.', 'hydrated'),
+                'error'        => __('Upload failed. Please try again.', 'hydrated'),
+                'close'        => __('Close', 'hydrated'),
+                'copy'         => __('Copy URL', 'hydrated'),
+                'copied'       => __('URL copied to your clipboard.', 'hydrated'),
+                'copyFailed'   => __('Copy failed. Please copy the URL manually.', 'hydrated'),
+                'removeConfirm'=> __('Remove the uploaded file?', 'hydrated'),
+                'removing'     => __('Removing…', 'hydrated'),
+                'removed'      => __('File removed.', 'hydrated'),
+                'saveFirst'    => __('Please save the post before uploading.', 'hydrated'),
+                'noFile'       => __('No file uploaded yet.', 'hydrated'),
+            ],
+        ]);
+    }
+    add_action('admin_enqueue_scripts', 'hydrated_do_spaces_enqueue_admin_assets');
+}
+
+if (!function_exists('hydrated_do_spaces_ajax_upload')) {
+    /**
+     * Handle AJAX uploads to DigitalOcean Spaces.
+     */
+    function hydrated_do_spaces_ajax_upload(): void
+    {
+        check_ajax_referer('hydrated_do_spaces_ajax', 'nonce');
+
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        $field_key = isset($_POST['field_key']) ? sanitize_key(wp_unslash((string) $_POST['field_key'])) : '';
+
+        if (!$post_id || !$field_key) {
+            wp_send_json_error(['message' => __('Invalid request.', 'hydrated')]);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => __('You are not allowed to upload files for this post.', 'hydrated')]);
+        }
+
+        if (empty($_FILES['file']) || !is_array($_FILES['file'])) {
+            wp_send_json_error(['message' => __('No file was provided.', 'hydrated')]);
+        }
+
+        $post_type = get_post_type($post_id) ?: 'post';
+        $fields = hydrated_do_spaces_fields_for_post_type($post_type);
+
+        if (!isset($fields[$field_key])) {
+            wp_send_json_error(['message' => __('Invalid field.', 'hydrated')]);
+        }
+
+        $result = hydrated_do_spaces_upload_field($_FILES['file'], $field_key, $fields[$field_key]);
+
+        if (is_wp_error($result)) {
+            wp_send_json_error(['message' => $result->get_error_message()]);
+        }
+
+        update_post_meta($post_id, $field_key, $result);
+
+        $file_name = !empty($result['key']) ? basename((string) $result['key']) : ($fields[$field_key]['label'] ?? $field_key);
+
+        wp_send_json_success([
+            'url'      => $result['url'],
+            'key'      => $result['key'],
+            'fileName' => $file_name,
+            'message'  => sprintf(__('Uploaded new file for “%s”.', 'hydrated'), $fields[$field_key]['label'] ?? $field_key),
+        ]);
+    }
+    add_action('wp_ajax_hydrated_do_spaces_upload', 'hydrated_do_spaces_ajax_upload');
+}
+
+if (!function_exists('hydrated_do_spaces_ajax_remove')) {
+    /**
+     * Handle AJAX removal of uploaded files from post meta.
+     */
+    function hydrated_do_spaces_ajax_remove(): void
+    {
+        check_ajax_referer('hydrated_do_spaces_ajax', 'nonce');
+
+        $post_id = isset($_POST['post_id']) ? (int) $_POST['post_id'] : 0;
+        $field_key = isset($_POST['field_key']) ? sanitize_key(wp_unslash((string) $_POST['field_key'])) : '';
+
+        if (!$post_id || !$field_key) {
+            wp_send_json_error(['message' => __('Invalid request.', 'hydrated')]);
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(['message' => __('You are not allowed to modify files for this post.', 'hydrated')]);
+        }
+
+        delete_post_meta($post_id, $field_key);
+
+        wp_send_json_success([
+            'message' => __('The file has been removed.', 'hydrated'),
+        ]);
+    }
+    add_action('wp_ajax_hydrated_do_spaces_remove', 'hydrated_do_spaces_ajax_remove');
 }
 
 if (!function_exists('hydrated_do_spaces_add_admin_notice')) {
