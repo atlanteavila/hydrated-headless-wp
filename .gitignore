@@ -1,0 +1,34 @@
+# WordPress Core
+wp-admin/
+wp-includes/
+
+# WordPress Content (excluding custom themes and plugins)
+wp-content/*
+!wp-content/themes/
+!wp-content/plugins/
+
+# Specific custom themes and plugins (example)
+wp-content/themes/twentyseventeen/
+wp-content/themes/twentynineteen/
+wp-content/plugins/akismet/
+wp-content/plugins/hello-dolly/
+
+# Uploads and Caches
+wp-content/uploads/
+wp-content/cache/
+
+# Configuration Files
+wp-config.php
+.env # If using Bedrock or similar setup
+
+# Database backups
+*.sql
+*.sql.gz
+
+# IDE and OS files
+.DS_Store
+.vscode/
+Thumbs.db
+*.log
+*.bak
+*.tmp
