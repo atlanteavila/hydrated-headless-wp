@@ -6,4 +6,5 @@ Description: A custom WordPress theme for use with headless frontends. Does not 
 Version: 1.0
 License: GNU General Public License v2 or later
 Text Domain: hydrated-headless
+Requires Plugins: advanced-custom-fields, wp-rest-api-v2-menus, wordpress-seo
 */
