@@ -16,6 +16,17 @@ add_filter('rest_endpoints', function ($endpoints) {
     return $endpoints;
 });
 
+// Register required plugin dependencies for the theme.
+add_action('after_setup_theme', function () {
+    if (function_exists('wp_register_plugin_theme_dependencies')) {
+        wp_register_plugin_theme_dependencies([
+            'advanced-custom-fields',
+            'wp-rest-api-v2-menus',
+            'wordpress-seo',
+        ]);
+    }
+});
+
 // ─────────────────────────────────────────────────────────────
 // Block editor styles + patterns
 // ─────────────────────────────────────────────────────────────
