@@ -697,7 +697,43 @@ if (!function_exists('hydrated_do_spaces_upload_file')) {
         $region = $config['region'] ?: 'nyc3';
         $space = $config['space'];
         $endpoint = $config['endpoint'] ?: $region . '.digitaloceanspaces.com';
-        $host = $space . '.' . $endpoint;
+        $endpoint = trim($endpoint);
+
+        if ('' === $endpoint) {
+            $endpoint = $region . '.digitaloceanspaces.com';
+        }
+
+        if (false !== stripos($endpoint, '://')) {
+            $parsed = wp_parse_url($endpoint);
+            if ($parsed && !empty($parsed['host'])) {
+                $endpoint = $parsed['host'];
+                if (!empty($parsed['port'])) {
+                    $endpoint .= ':' . $parsed['port'];
+                }
+            } else {
+                $endpoint = preg_replace('#^[a-z0-9.+-]+://#i', '', $endpoint);
+            }
+        }
+
+        $endpoint = preg_replace('#/+$#', '', $endpoint);
+
+        if (false !== strpos($endpoint, '/')) {
+            $parts = explode('/', $endpoint, 2);
+            $endpoint = $parts[0];
+        }
+
+        $endpoint = ltrim($endpoint, '.');
+
+        if ('' === $endpoint) {
+            $endpoint = $region . '.digitaloceanspaces.com';
+        }
+
+        if ($space && 0 === strpos($endpoint, $space . '.')) {
+            $host = $endpoint;
+        } else {
+            $host = $space . '.' . $endpoint;
+        }
+
         $url = 'https://' . $host . '/' . ltrim($key, '/');
 
         $body = file_get_contents($path);
