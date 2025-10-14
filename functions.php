@@ -184,7 +184,68 @@ if (!function_exists('hydrated_do_spaces_config')) {
             'endpoint'     => getenv('DO_SPACES_ENDPOINT') ?: '',
             'cdn_host'     => getenv('DO_SPACES_CDN_HOST') ?: '',
             'prefix'       => trim((string) getenv('DO_SPACES_UPLOAD_PREFIX'), " \/"),
+            'video_field'  => defined('HYDRATED_DO_SPACES_VIDEO_FIELD')
+                ? (string) constant('HYDRATED_DO_SPACES_VIDEO_FIELD')
+                : ((string) getenv('HYDRATED_DO_SPACES_VIDEO_FIELD') ?: ''),
         ];
+    }
+}
+
+if (!function_exists('hydrated_do_spaces_target_field_name')) {
+    /**
+     * Retrieve the configured target field for DigitalOcean uploads.
+     */
+    function hydrated_do_spaces_target_field_name(): string
+    {
+        $config = hydrated_do_spaces_config();
+        $field = isset($config['video_field']) ? (string) $config['video_field'] : '';
+
+        return trim($field);
+    }
+}
+
+if (!function_exists('hydrated_do_spaces_update_target_field')) {
+    /**
+     * Sync the configured target field with a provided value.
+     */
+    function hydrated_do_spaces_update_target_field(int $post_id, string $value): void
+    {
+        $field = hydrated_do_spaces_target_field_name();
+        if ($field === '') {
+            return;
+        }
+
+        if (function_exists('update_field')) {
+            update_field($field, $value, $post_id);
+            return;
+        }
+
+        $meta_key = sanitize_key($field);
+        if ($meta_key === '') {
+            return;
+        }
+
+        if ($value === '') {
+            delete_post_meta($post_id, $meta_key);
+            return;
+        }
+
+        update_post_meta($post_id, $meta_key, $value);
+    }
+}
+
+if (!function_exists('hydrated_do_spaces_should_sync_target_field')) {
+    /**
+     * Determine if a given upload field should sync the configured target field.
+     */
+    function hydrated_do_spaces_should_sync_target_field(string $field_key): bool
+    {
+        $should_sync = ($field_key === 'hydrated_do_space_video');
+
+        /**
+         * Filter whether an upload field should sync to the configured target field.
+         */
+        return (bool) apply_filters('hydrated_do_spaces_should_sync_target_field', $should_sync, $field_key);
     }
 }
 
@@ -202,11 +263,6 @@ if (!function_exists('hydrated_do_spaces_fields_for_post_type')) {
                 'label'       => __('DigitalOcean Video', 'hydrated'),
                 'description' => __('Upload a video that will be stored in DigitalOcean Spaces.', 'hydrated'),
                 'accept'      => 'video/*',
-            ],
-            'hydrated_do_space_image' => [
-                'label'       => __('DigitalOcean Image', 'hydrated'),
-                'description' => __('Upload an image that will be stored in DigitalOcean Spaces.', 'hydrated'),
-                'accept'      => 'image/*',
             ],
         ];
 
@@ -272,7 +328,9 @@ if (!function_exists('hydrated_render_do_spaces_meta_box')) {
 
             $has_file = is_array($stored) && !empty($stored['url']);
 
-            echo '<div class="hydrated-do-space-field" data-field-key="' . esc_attr($field_key) . '" data-field-label="' . esc_attr($label) . '">';
+            $sync_target_attr = hydrated_do_spaces_should_sync_target_field($field_key) ? ' data-sync-target="1"' : '';
+
+            echo '<div class="hydrated-do-space-field" data-field-key="' . esc_attr($field_key) . '" data-field-label="' . esc_attr($label) . '"' . $sync_target_attr . '>';
             echo '<div class="hydrated-do-space-field__header">';
             echo '<span class="hydrated-do-space-field__label">' . esc_html($label) . '</span>';
             if ($description) {
@@ -381,6 +439,9 @@ if (!function_exists('hydrated_handle_do_spaces_meta_save')) {
             if ($remove) {
                 delete_post_meta($post_id, $field_key);
                 $successes[] = sprintf(__('Removed file for “%s”.', 'hydrated'), $field['label'] ?? $field_key);
+                if (hydrated_do_spaces_should_sync_target_field($field_key)) {
+                    hydrated_do_spaces_update_target_field($post_id, '');
+                }
                 continue;
             }
 
@@ -406,6 +467,10 @@ if (!function_exists('hydrated_handle_do_spaces_meta_save')) {
 
             update_post_meta($post_id, $field_key, $result);
             $successes[] = sprintf(__('Uploaded new file for “%s”.', 'hydrated'), $field['label'] ?? $field_key);
+
+            if (hydrated_do_spaces_should_sync_target_field($field_key)) {
+                hydrated_do_spaces_update_target_field($post_id, (string) ($result['url'] ?? ''));
+            }
         }
 
         foreach ($errors as $message) {
@@ -453,6 +518,7 @@ if (!function_exists('hydrated_do_spaces_enqueue_admin_assets')) {
         wp_localize_script('hydrated-do-spaces-admin', 'HydratedDOSpaces', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('hydrated_do_spaces_ajax'),
+            'targetField' => hydrated_do_spaces_target_field_name(),
             'strings' => [
                 'modalTitle'   => __('Upload to DigitalOcean Spaces', 'hydrated'),
                 'selectFile'   => __('Choose a file to upload. Upload begins immediately after selection.', 'hydrated'),
@@ -513,6 +579,10 @@ if (!function_exists('hydrated_do_spaces_ajax_upload')) {
 
         update_post_meta($post_id, $field_key, $result);
 
+        if (hydrated_do_spaces_should_sync_target_field($field_key)) {
+            hydrated_do_spaces_update_target_field($post_id, (string) ($result['url'] ?? ''));
+        }
+
         $file_name = !empty($result['key']) ? basename((string) $result['key']) : ($fields[$field_key]['label'] ?? $field_key);
 
         wp_send_json_success([
@@ -545,6 +615,10 @@ if (!function_exists('hydrated_do_spaces_ajax_remove')) {
         }
 
         delete_post_meta($post_id, $field_key);
+
+        if (hydrated_do_spaces_should_sync_target_field($field_key)) {
+            hydrated_do_spaces_update_target_field($post_id, '');
+        }
 
         wp_send_json_success([
             'message' => __('The file has been removed.', 'hydrated'),

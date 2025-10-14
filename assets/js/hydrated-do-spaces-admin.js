@@ -2,6 +2,7 @@
     const settings = window.HydratedDOSpaces || {};
     const strings = settings.strings || {};
     const ajaxUrl = settings.ajaxUrl || window.ajaxurl || '';
+    const targetField = settings.targetField || '';
 
     if (!ajaxUrl) {
         return;
@@ -153,6 +154,45 @@
 
         const hasFile = !!(data && data.url);
         $field.find('.hydrated-do-space-remove').toggleClass('is-hidden', !hasFile);
+
+        if ($field.data('sync-target')) {
+            updateTargetField(hasFile && data ? data.url : '');
+        }
+    }
+
+    function updateTargetField(value) {
+        if (!targetField) {
+            return;
+        }
+
+        let updated = false;
+
+        const $acfByKey = $('.acf-field[data-key="' + targetField + '"]');
+        if ($acfByKey.length) {
+            const $inputs = $acfByKey.find('input[type="text"], textarea');
+            if ($inputs.length) {
+                $inputs.val(value).trigger('change');
+                updated = true;
+            }
+        }
+
+        if (!updated) {
+            const $acfByName = $('.acf-field[data-name="' + targetField + '"]');
+            if ($acfByName.length) {
+                const $inputs = $acfByName.find('input[type="text"], textarea');
+                if ($inputs.length) {
+                    $inputs.val(value).trigger('change');
+                    updated = true;
+                }
+            }
+        }
+
+        if (!updated) {
+            const $plainInputs = $('[name="' + targetField + '"]');
+            if ($plainInputs.length) {
+                $plainInputs.filter('input[type="text"], textarea').val(value).trigger('change');
+            }
+        }
     }
 
     function uploadFile(file) {
